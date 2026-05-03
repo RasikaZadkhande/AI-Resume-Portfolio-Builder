@@ -1,241 +1,210 @@
-import streamlit as st
+import streamlit as st 
 import PyPDF2
+import json
 from dotenv import load_dotenv
 from groq import Groq
 import os
 import io
 
-# ==================== ENV SETUP ====================
+# Load environment variables
 load_dotenv()
+# Read Groq API key from env
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# ==================== STREAMLIT CONFIG ====================
-st.set_page_config(
-    page_title="AI Resume & Portfolio Builder",
-    page_icon="📄",
-    layout="wide"
-)
+# Streamlit page config
+st.set_page_config(page_title="AI Resume Analyzer", page_icon="📄", layout="wide")
 
-# ==================== GROQ CLIENT ====================
+# Initialize Groq client (reads API key from env if provided)
 client = Groq(api_key=GROQ_API_KEY)
-DEFAULT_MODEL = "llama-3.1-8b-instant"
 
-# ==================== PDF TEXT EXTRACTION ====================
 def extract_text_from_pdf(pdf_file):
+    """Extract text from uploaded PDF file."""
     pdf_reader = PyPDF2.PdfReader(io.BytesIO(pdf_file.read()))
     text = ""
     for page in pdf_reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text + "\n"
+        p = page.extract_text()
+        if p:
+            text += p + "\n"
     return text.strip()
 
-# ==================== AI FUNCTIONS ====================
-def generate_resume(profile, model=DEFAULT_MODEL):
+# Using a high-performance model as the default
+DEFAULT_MODEL = "llama-3.1-8b-instant"
+
+def analyze_resume_with_ai(resume_text, job_role, model=DEFAULT_MODEL):
+    """Use Groq to check if file is a resume + analyze it."""
+
     prompt = f"""
-You are a professional resume writer.
+You are an expert document classifier + HR career coach.
 
-Create a tailored ATS-friendly resume.
+First decide whether this document is a RESUME or NOT.
 
-Name: {profile['name']}
-Education: {profile['education']}
-Skills: {profile['skills']}
-Projects: {profile['projects']}
-Experience: {profile['experience']}
-Target Job Role: {profile['job_role']}
+Follow exactly this format:
 
-Format:
-- Professional Summary
-- Skills
-- Projects
-- Experience
-- Education
+IS_RESUME: YES or sNO
+DOC_TYPE: <type of document if not resume>
+REASON: <why you think so>
+
+If IS_RESUME is YES:
+  - Analyze the resume for job role: {job_role}
+  - Provide the following:
+      1. Strengths
+      2. Areas for Improvement
+      3. Job-Specific Advice
+      4. ATS score in percentages with description
+      5. Actionable Tips
+    
+in this topic each topic caontain 6 subpoints 
+If IS_RESUME is NO:
+  - Do NOT analyze as a resume.
+  - Describe what this document contains.
+
+Here is the full document text:
+{resume_text}
 """
-    response = client.chat.completions.create(
+
+    resp = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=1200,
-        temperature=0.4
+        messages=[
+            {"role": "system", "content": "You are an expert document classifier + HR career coach."},
+            {"role": "user", "content": prompt}
+        ],
+        max_completion_tokens=1500,
+        temperature=0.4,
     )
-    return response.choices[0].message.content
 
+    return resp.choices[0].message.content
+#---------
 
-def generate_cover_letter(profile, model=DEFAULT_MODEL):
+def generate_portfolio_data(resume_text, model=DEFAULT_MODEL):
+
     prompt = f"""
-Write a professional cover letter for the role of {profile['job_role']}.
+    Extract structured data from this resume.
 
-Name: {profile['name']}
-Education: {profile['education']}
-Skills: {profile['skills']}
-Projects: {profile['projects']}
+    Return ONLY JSON:
 
-Tone: Professional and confident.
-"""
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=800,
-        temperature=0.4
-    )
-    return response.choices[0].message.content
-
-
-def generate_portfolio(profile, model=DEFAULT_MODEL):
-    prompt = f"""
-Create a student portfolio with sections:
-- About Me
-- Skills
-- Projects
-- Career Goals
-
-Name: {profile['name']}
-Skills: {profile['skills']}
-Projects: {profile['projects']}
-Target Role: {profile['job_role']}
-"""
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=1000,
-        temperature=0.4
-    )
-    return response.choices[0].message.content
-
-
-def analyze_resume(resume_text, job_role, model=DEFAULT_MODEL):
-    prompt = f"""
-You are an HR and ATS expert.
-
-Analyze this resume for the role of {job_role}.
-Provide:
-1. Strengths (6 points)
-2. Weaknesses (6 points)
-3. Job-Specific Advice (6 points)
-4. ATS Score with explanation
-5. Actionable Tips
+    {{
+      "name": "",
+      "about": "",
+      "skills": ["", ""],
+      "projects": [
+    {{
+      "title": "",
+      "description": ""
+    }}
+  ],
+  "experience": ["", ""],
+  "contact": {{
+    "email": ""
+  }}
+}}
 
 Resume:
 {resume_text}
+
 """
+
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=1500,
-        temperature=0.4
-    )
-    return response.choices[0].message.content
-
-
-def skill_gap_analysis(resume_text, job_role, model=DEFAULT_MODEL):
-    prompt = f"""
-You are an ATS system and technical recruiter.
-
-Step 1: List top 10 mandatory skills for job role: {job_role}
-Step 2: Identify skills present in resume
-Step 3: Identify missing skills
-Step 4: Explain disqualification risk
-Step 5: Suggest learning roadmap
-
-Format strictly as:
-
-REQUIRED_SKILLS:
-- ...
-
-CANDIDATE_HAS:
-- ...
-
-MISSING_SKILLS:
-- ...
-
-DISQUALIFICATION_REASON:
-- ...
-
-IMPROVEMENT_ROADMAP:
-- ...
-
-Resume Text:
-{resume_text}
-"""
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_completion_tokens=1200,
+        messages=[
+            {"role": "system", "content": "You are a data extractor."},
+            {"role": "user", "content": prompt}
+        ],
         temperature=0.3
     )
-    return response.choices[0].message.content
 
-# ==================== UI ====================
-st.title("📄 AI Resume & Portfolio Builder")
-st.markdown(
-    "Generate **Resumes, Cover Letters & Portfolios** or analyze resumes with **Skill Gap Detection**."
-)
+    data = response.choices[0].message.content
+    data = data.replace("```json", "").replace("```", "")
 
-tab1, tab2 = st.tabs(["🛠️ Resume Builder", "🔍 Resume Analyzer"])
+    return json.loads(data)
 
-# ==================== TAB 1 : BUILDER ====================
-with tab1:
-    st.subheader("🧑‍🎓 Student Details")
+#----
+def render_portfolio(template, data):
 
-    name = st.text_input("Full Name")
-    education = st.text_area("Education")
-    skills = st.text_area("Skills (comma separated)")
-    projects = st.text_area("Projects")
-    experience = st.text_area("Experience (optional)")
-    job_role = st.text_input("Target Job Role")
+    # Skills
+    skills_html = "".join(
+        f'<span class="tag">{s}</span>' 
+        for s in data.get("skills", [])
+    )
 
-    if st.button("🚀 Generate Resume, Cover Letter & Portfolio"):
-        if not name or not skills or not job_role:
-            st.warning("Please fill Name, Skills and Job Role.")
-        else:
-            profile = {
-                "name": name,
-                "education": education,
-                "skills": skills,
-                "projects": projects,
-                "experience": experience,
-                "job_role": job_role
-            }
+    # Projects
+    projects_html = ""
+    for p in data.get("projects", []):
+        projects_html += f"""
+        <div class="project">
+            <h3>{p.get('title','')}</h3>
+            <p>{p.get('description','')}</p>
+        </div>
+        """
 
-            with st.spinner("Generating using AI..."):
-                resume = generate_resume(profile)
-                cover_letter = generate_cover_letter(profile)
-                portfolio = generate_portfolio(profile)
+    # Experience
+    experience_html = "".join(
+        f"<p>{e}</p>" 
+        for e in data.get("experience", [])
+    )
 
-            st.subheader("📄 Resume")
-            st.markdown(resume)
+    html = template.replace("{{name}}", data.get("name",""))
+    html = html.replace("{{about}}", data.get("about",""))
+    html = html.replace("{{skills}}", skills_html)
+    html = html.replace("{{projects}}", projects_html)
+    html = html.replace("{{experience}}", experience_html)
+    html = html.replace("{{email}}", data.get("contact", {}).get("email",""))
 
-            st.subheader("✉️ Cover Letter")
-            st.markdown(cover_letter)
+    return html
+# Main App
+st.title("📄 AI Resume Analyzer ")
+st.markdown("Upload your PDF resume below for AI-powered feedback and career advice!")
 
-            st.subheader("🌐 Portfolio")
-            st.markdown(portfolio)
+# Sidebar for job role input and model selection
+st.sidebar.header("Analysis Settings")
+job_role = st.sidebar.text_input("Enter the target job role:", value="Software Engineer")
+model_choice = st.sidebar.text_input("Groq Model ID:", value=DEFAULT_MODEL)
 
-# ==================== TAB 2 : ANALYZER ====================
-with tab2:
-    st.subheader("Upload Resume (PDF)")
-    uploaded_file = st.file_uploader("Upload PDF Resume", type=["pdf"])
-    job_role_analysis = st.text_input("Target Job Role for Analysis", value="Software Engineer")
+# File uploader
+uploaded_file = st.file_uploader("Choose a PDF resume file", type="pdf")
 
-    if uploaded_file:
-        resume_text = extract_text_from_pdf(uploaded_file)
-
-        with st.expander("📄 Extracted Resume Text"):
-            st.text_area("Resume Text", resume_text, height=250)
-
-        if st.button("🔍 Resume Analysis"):
-            with st.spinner("Analyzing resume..."):
-                analysis = analyze_resume(resume_text, job_role_analysis)
-
-            st.subheader("📊 Resume Feedback")
+if uploaded_file is not None:
+    st.success(f"Uploaded: {uploaded_file.name}")
+    
+    resume_text = extract_text_from_pdf(uploaded_file)
+    
+    if resume_text:
+        with st.expander("Resume Text Preview", expanded=False):
+            st.text_area("Content", resume_text, height=200)
+        
+        if st.button("🔍 Analyze Resume"):
+            analysis = analyze_resume_with_ai(resume_text, job_role, model=model_choice)
+            st.subheader("AI Feedback")
             st.markdown(analysis)
+            
+            st.download_button(
+                label="Download Feedback as TXT",
+                data=analysis,
+                file_name=f"resume_feedback_{job_role}.txt",
+                mime="text/plain"
+            )
+        
+        if st.button("🚀 Generate Portfolio"):
 
-        if st.button("🚨 Skill Gap & Disqualification Analysis"):
-            with st.spinner("Checking skill gaps..."):
-                skill_gap = skill_gap_analysis(resume_text, job_role_analysis)
+           data = generate_portfolio_data(resume_text, model_choice)
 
-            st.subheader("🚨 Skill Gap Report")
-            st.markdown(skill_gap)
+           with open("template.html", "r", encoding="utf-8") as f:
+               template = f.read()
 
-# ==================== FOOTER ====================
+           final_html = render_portfolio(template, data)
+
+           st.subheader("🌍 Portfolio Preview")
+           st.components.v1.html(final_html, height=500, scrolling=True)
+
+           st.download_button(
+               "⬇️ Download Portfolio",
+               final_html,
+               "portfolio.html",
+               "text/html"
+            )
+           
+
+           
+
+# Footer
 st.markdown("---")
-st.markdown("Built with ❤️ using **Python, Streamlit & Groq AI**")
+st.markdown("Built with ❤️ using python,Streamlit & Groq.")
